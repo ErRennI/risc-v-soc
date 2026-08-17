@@ -18,7 +18,8 @@ module control_unit (
     input  logic        branch_lt,
     input  logic        branch_ltu,
     input  logic        mdu_done,             // HIGH for one cycle when MDU result is ready
-    input  logic        irq_pending,          // HIGH when timer IRQ is enabled and pending
+    input  logic        irq_pending,          // HIGH when a timer or external IRQ is enabled and pending
+    input  logic        irq_cause_external,   // HIGH when the pending IRQ is external, not timer
     input  logic        mem_addr_misaligned,   // HIGH in EXECUTE when load/store addr is unaligned
     input  logic        fetch_addr_misaligned, // HIGH in EXECUTE when branch/JAL/JALR target is unaligned
 
@@ -123,7 +124,7 @@ module control_unit (
         else case (current_state)
             STATE_FETCH:
                 if (irq_pending)
-                    trap_cause_reg <= EXC_M_TIMER_IRQ;
+                    trap_cause_reg <= irq_cause_external ? EXC_M_EXTERNAL_IRQ : EXC_M_TIMER_IRQ;
             STATE_EXECUTE:
                 case (opcode)
                     OP_SYSTEM:

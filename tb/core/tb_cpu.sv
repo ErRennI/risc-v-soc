@@ -37,6 +37,7 @@ module tb_cpu;
     .clk              (clk),
     .rst_n            (rst_n),
     .irq_m_timer      (1'b0),
+    .irq_m_external   (1'b0),
     .imem_addr        (imem_addr),
     .imem_data        (imem_data),
     .dmem_addr        (dmem_addr),

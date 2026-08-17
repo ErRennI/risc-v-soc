@@ -11,6 +11,10 @@
 //   Enables MTIE + MIE, spins on a NOP.  Testbench asserts
 //   irq_m_timer.  Handler stores MCAUSE, clears MTIE, sets
 //   MEPC+4, and MRET.  Execution continues past the spin NOP.
+//
+// Test 3: External interrupt (e.g. keyboard)
+//   Same as Test 2 but enables MEIE and asserts irq_m_external;
+//   handler observes MCAUSE = 0x8000000B.
 // ============================================================
 
 import riscv_pkg::*;
@@ -21,6 +25,7 @@ module tb_cpu_csr;
     logic        clk;
     logic        rst_n;
     logic        irq_m_timer;
+    logic        irq_m_external;
     logic [31:0] imem_addr;
     logic [31:0] imem_data;
     logic [31:0] dmem_addr;
@@ -39,6 +44,7 @@ module tb_cpu_csr;
         .clk              (clk),
         .rst_n            (rst_n),
         .irq_m_timer      (irq_m_timer),
+        .irq_m_external   (irq_m_external),
         .imem_addr        (imem_addr),
         .imem_data        (imem_data),
         .dmem_addr        (dmem_addr),
@@ -152,8 +158,9 @@ module tb_cpu_csr;
         $dumpfile("sim_cpu_csr.vcd");
         $dumpvars(0, tb_cpu_csr);
 
-        error_count  = 0;
-        irq_m_timer  = 1'b0;
+        error_count    = 0;
+        irq_m_timer    = 1'b0;
+        irq_m_external = 1'b0;
 
         // ===========================================================
         // TEST 1: ECALL / MRET
@@ -285,12 +292,69 @@ module tb_cpu_csr;
         check_dmem(0,    32'h8000_0007,  "DMEM[0] MCAUSE timer IRQ");
         check_dmem(1,    32'd204,        "DMEM[1] post-interrupt store");
 
+        // ===========================================================
+        // TEST 3: External interrupt (keyboard-style)
+        // Same program shape as Test 2 but MEIE (bit 11 = 0x800) instead
+        // of MTIE, and irq_m_external instead of irq_m_timer. Expected
+        // MCAUSE = 0x8000000B (EXC_M_EXTERNAL_IRQ).
+        // ===========================================================
+
+        rst_n          = 1'b0;
+        irq_m_timer    = 1'b0;
+        irq_m_external = 1'b0;
+        for (i = 0; i < 256; i++) begin imem[i] = 32'h0000_0013; dmem[i] = 0; end
+
+        // 0x800 (bit 11) can't be built with one ADDI — its sign bit (imm[11])
+        // would sign-extend to 0xFFFFF800. Build it as 0x7FF + 1 instead,
+        // which pushes every later instruction one slot later than Test 2.
+        imem[0]  = encode_u(0, 5'd7, OP_AUIPC);
+        imem[1]  = encode_i(84, 5'd7, F3_ADD_SUB, 5'd7, OP_I_ALU);
+        imem[2]  = encode_csrw(CSR_MTVEC, 5'd7);
+        imem[3]  = encode_u(32'h20000000, 5'd5, OP_LUI);
+        imem[4]  = encode_i(2047, 5'd0, F3_ADD_SUB, 5'd6, OP_I_ALU);   // x6 = 0x7FF
+        imem[5]  = encode_i(1, 5'd6, F3_ADD_SUB, 5'd6, OP_I_ALU);      // x6 = 0x800 (MEIE bit)
+        imem[6]  = encode_csrw(CSR_MIE, 5'd6);
+        imem[7]  = encode_i(8, 5'd0, F3_ADD_SUB, 5'd6, OP_I_ALU);
+        imem[8]  = encode_csrw(CSR_MSTATUS, 5'd6);
+        // [9] 0x24 = NOP (already initialized)
+
+        imem[10] = encode_i(204, 5'd0, F3_ADD_SUB, 5'd10, OP_I_ALU);
+        imem[11] = encode_s(4, 5'd10, 5'd5, F3_SW, OP_S);
+        imem[12] = 32'h0000_006F;                                    // jal x0,0
+        // [13-20] remain NOPs
+
+        imem[21] = encode_csrr(5'd29, CSR_MCAUSE);
+        imem[22] = encode_s(0, 5'd29, 5'd5, F3_SW, OP_S);
+        imem[23] = encode_csrw(CSR_MIE, 5'd0);
+        imem[24] = encode_csrr(5'd28, CSR_MEPC);
+        imem[25] = encode_i(4, 5'd28, F3_ADD_SUB, 5'd28, OP_I_ALU);
+        imem[26] = encode_csrw(CSR_MEPC, 5'd28);
+        imem[27] = 32'h3020_0073;                                    // mret
+
+        @(posedge clk);
+        @(posedge clk);
+        rst_n = 1'b1;
+
+        // 9 setup instructions x 4 cycles = 36 cycles before the NOP at 0x24.
+        repeat (36) @(posedge clk);
+        irq_m_external = 1'b1;
+
+        repeat (250) @(posedge clk);
+
+        $display("--- Test 3: External interrupt ---");
+        check_reg(5'd10, 32'd204,        "x10 post-interrupt (external)");
+        check_reg(5'd28, 32'h0000_0028,  "x28 MEPC+4 = 0x28 (external)");
+        check_reg(5'd29, 32'h8000_000B,  "x29 MCAUSE external IRQ");
+        check_dmem(0,    32'h8000_000B,  "DMEM[0] MCAUSE external IRQ");
+        check_dmem(1,    32'd204,        "DMEM[1] post-interrupt store (external)");
+        irq_m_external = 1'b0;
+
         if (error_count != 0) begin
             $display("CPU CSR test FAILED: %0d error(s).", error_count);
             $fatal(1);
         end
 
-        $display("CPU CSR test passed (10 checks).");
+        $display("CPU CSR test passed (15 checks).");
         $finish;
     end
 

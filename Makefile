@@ -212,6 +212,7 @@ sim_soc_decode:
 		rtl/peripheral/gpio.sv \
 		rtl/peripheral/sevenseg.sv \
 		rtl/peripheral/spi_flash.sv \
+		rtl/peripheral/ps2_keyboard.sv \
 		rtl/soc_top.sv \
 		tb/integration/tb_soc_top_decode.sv
 	vvp sim_soc_decode.vvp
@@ -381,7 +382,8 @@ compile_soc_diag:
 		sw/drivers/uart.c \
 		sw/drivers/gpio.c \
 		sw/drivers/timer.c \
-		sw/tests/soc_diag.c
+		sw/drivers/vga.c \
+		sw/tests/soc_diag.c 
 	riscv64-unknown-elf-objcopy -O binary \
 		sw/tests/soc_diag.elf \
 		sw/tests/soc_diag.bin
@@ -410,6 +412,7 @@ sim_soc_diag: compile_soc_diag
 		rtl/peripheral/gpio.sv \
 		rtl/peripheral/sevenseg.sv \
 		rtl/peripheral/spi_flash.sv \
+		rtl/peripheral/ps2_keyboard.sv \
 		rtl/soc_top.sv \
 		tb/integration/tb_soc_diag.sv
 	vvp sim_soc_diag.vvp
@@ -420,9 +423,8 @@ compile_calculator:
 		-T sw/linker/linker.ld \
 		-o sw/tests/calculator.elf \
 		sw/startup/crt0.S \
-		sw/drivers/uart.c \
-		sw/drivers/gpio.c \
-		sw/drivers/sevenseg.c \
+		sw/drivers/vga.c \
+		sw/drivers/keyboard.c \
 		sw/tests/calculator.c
 	riscv64-unknown-elf-objcopy -O binary \
 		sw/tests/calculator.elf \
@@ -440,6 +442,15 @@ sim_calculator: compile_calculator
 		rtl/core/alu.sv \
 		rtl/core/mdu.sv \
 		rtl/core/register_file.sv \
+		rtl/clk_divider.sv \
+		rtl/memory/font_rom.sv \
+		rtl/memory/vga_vram_ctrl.sv \
+		rtl/peripheral/vga_address_translator.sv \
+		rtl/peripheral/vga_horizontal_counter.sv \
+		rtl/peripheral/vga_vertical_counter.sv \
+		rtl/peripheral/vga_sync.sv \
+		rtl/peripheral/vga_pixel_gen.sv \
+		rtl/peripheral/vga_core.sv \
 		rtl/core/imm_gen.sv \
 		rtl/core/csr_file.sv \
 		rtl/core/control_unit.sv \
@@ -452,6 +463,7 @@ sim_calculator: compile_calculator
 		rtl/peripheral/gpio.sv \
 		rtl/peripheral/sevenseg.sv \
 		rtl/peripheral/spi_flash.sv \
+		rtl/peripheral/ps2_keyboard.sv \
 		rtl/soc_top.sv \
 		tb/integration/tb_calculator.sv
 	vvp sim_calculator.vvp
@@ -492,6 +504,7 @@ sim_benchmark: compile_benchmark
 		rtl/peripheral/gpio.sv \
 		rtl/peripheral/sevenseg.sv \
 		rtl/peripheral/spi_flash.sv \
+		rtl/peripheral/ps2_keyboard.sv \
 		rtl/soc_top.sv \
 		tb/integration/tb_benchmark.sv
 	vvp sim_benchmark.vvp
@@ -553,9 +566,43 @@ sim_irq_demo: compile_irq_demo_sim
 		rtl/peripheral/gpio.sv \
 		rtl/peripheral/sevenseg.sv \
 		rtl/peripheral/spi_flash.sv \
+		rtl/peripheral/ps2_keyboard.sv \
 		rtl/soc_top.sv \
 		tb/integration/tb_irq_demo.sv
 	vvp sim_irq_demo.vvp
+
+# --- Keyboard IRQ Demo Software Build ---
+compile_keyboard_irq_demo:
+	riscv64-unknown-elf-gcc $(CFLAGS) \
+		-T sw/linker/linker.ld \
+		-o sw/tests/keyboard_irq_demo.elf \
+		sw/startup/crt0.S \
+		sw/drivers/uart.c \
+		sw/drivers/keyboard.c \
+		sw/tests/keyboard_irq_demo.c
+	riscv64-unknown-elf-objcopy -O binary \
+		sw/tests/keyboard_irq_demo.elf \
+		sw/tests/keyboard_irq_demo.bin
+	python3 scripts/bin_to_mem.py \
+		sw/tests/keyboard_irq_demo.bin \
+		sw/tests/keyboard_irq_demo.mem
+	@echo "Keyboard IRQ demo compiled successfully (hardware build)"
+
+# --- Keyboard Raw Byte Dump (diagnostic) ---
+compile_kbd_raw_dump:
+	riscv64-unknown-elf-gcc $(CFLAGS) \
+		-T sw/linker/linker.ld \
+		-o sw/tests/kbd_raw_dump.elf \
+		sw/startup/crt0.S \
+		sw/drivers/uart.c \
+		sw/tests/kbd_raw_dump.c
+	riscv64-unknown-elf-objcopy -O binary \
+		sw/tests/kbd_raw_dump.elf \
+		sw/tests/kbd_raw_dump.bin
+	python3 scripts/bin_to_mem.py \
+		sw/tests/kbd_raw_dump.bin \
+		sw/tests/kbd_raw_dump.mem
+	@echo "Keyboard raw dump compiled successfully (hardware build)"
 
 # --- Bootloader Software Build ---
 # Compiles the UART bootloader and creates a combined .mem image:
@@ -568,7 +615,7 @@ compile_bootloader:
 		sw/startup/crt0_boot.S \
 		sw/drivers/uart.c \
 		sw/drivers/spi_flash.c \
-		sw/tests/bootloader.c
+		sw/tests/bootloader.c 
 	riscv64-unknown-elf-objcopy -O binary \
 		sw/tests/bootloader.elf \
 		sw/tests/bootloader.bin
@@ -617,6 +664,7 @@ compile_sw:
 		sw/drivers/uart.c \
 		sw/drivers/gpio.c \
 		sw/drivers/timer.c \
+		sw/drivers/vga.c \
 		sw/tests/main.c
 	riscv64-unknown-elf-objcopy -O binary \
 		sw/tests/program.elf \

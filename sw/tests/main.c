@@ -7,6 +7,7 @@
 #include "../drivers/uart.h"
 #include "../drivers/gpio.h"
 #include "../drivers/timer.h"
+#include "../drivers/vga.h"
 
 int main(void)
 {
@@ -18,6 +19,16 @@ int main(void)
 
     // --- Step 3: Turn on all LEDs ---
     gpio_write(0xFFFF);
+
+    //VGA init
+    vga_init();
+
+    vga_write_char(37, 29, 'R', VGA_COLOR_YELLOW);
+    vga_write_char(38, 29, 'I', VGA_COLOR_YELLOW);
+    vga_write_char(39, 29, 'S', VGA_COLOR_YELLOW);
+    vga_write_char(40, 29, 'C', VGA_COLOR_YELLOW);
+    vga_write_char(41, 29, '-', VGA_COLOR_YELLOW);
+    vga_write_char(42, 29, 'V', VGA_COLOR_YELLOW);
 
     // --- Step 4: Loop forever ---
     while (1)

@@ -41,7 +41,18 @@ module nexys_a7_top (
     output logic        flash_mosi,
     input  logic        flash_miso,
     output logic        flash_wp_n,
-    output logic        flash_hold_n
+    output logic        flash_hold_n,
+
+    // PS/2 keyboard
+    input  logic        ps2_clk,
+    input  logic        ps2_data,
+
+    // VGA output
+    output logic        hsync,
+    output logic        vsync,
+    output logic [3:0]  vga_r,
+    output logic [3:0]  vga_g,
+    output logic [3:0]  vga_b
 );
 
     // --------------------------------------------------------
@@ -119,7 +130,14 @@ module nexys_a7_top (
         .spi_mosi    (flash_mosi),
         .spi_miso    (flash_miso),
         .spi_wp_n    (flash_wp_n),
-        .spi_hold_n  (flash_hold_n)
+        .spi_hold_n  (flash_hold_n),
+        .ps2_clk     (ps2_clk),
+        .ps2_data    (ps2_data),
+        .hsync       (hsync),
+        .vsync       (vsync),
+        .vga_r       (vga_r),
+        .vga_g       (vga_g),
+        .vga_b       (vga_b)
     );
 
 endmodule

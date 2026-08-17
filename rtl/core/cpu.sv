@@ -4,13 +4,14 @@
 //           Instantiates and connects control_unit and datapath
 // ============================================================
 module cpu #(
-    parameter logic [31:0] PC_RESET = 32'h0000_0000
+    parameter logic [31:0] PC_RESET = 32'h0000_7800
 ) (
     input  logic        clk,
     input  logic        rst_n,
 
-    // Machine timer interrupt from peripheral bus
+    // Interrupts from peripheral bus
     input  logic        irq_m_timer,
+    input  logic        irq_m_external,
 
     // Instruction memory interface
     output logic [31:0] imem_addr,
@@ -45,6 +46,7 @@ module cpu #(
     logic        mdu_start;
     logic        mdu_done;
     logic        irq_pending;
+    logic        irq_cause_external;
     logic        trap_en;
     logic        mret_en;
     logic        csr_reg_en;
@@ -64,6 +66,7 @@ module cpu #(
         .branch_ltu           (branch_ltu),
         .mdu_done             (mdu_done),
         .irq_pending          (irq_pending),
+        .irq_cause_external   (irq_cause_external),
         .mem_addr_misaligned  (mem_addr_misaligned),
         .fetch_addr_misaligned(fetch_addr_misaligned),
         .alu_src_a_sel        (alu_src_a_sel),
@@ -117,7 +120,9 @@ module cpu #(
         .in_second_pass       (in_second_pass),
         .instret_en           (instret_en),
         .irq_m_timer          (irq_m_timer),
+        .irq_m_external       (irq_m_external),
         .irq_pending          (irq_pending),
+        .irq_cause_external   (irq_cause_external),
         .imem_addr            (imem_addr),
         .imem_data            (imem_data),
         .dmem_addr            (dmem_addr),

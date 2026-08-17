@@ -19,8 +19,9 @@ module csr_file (
     input  logic [31:0] trap_val,         // MTVAL value to write on trap entry
     input  logic [31:0] trap_pc,          // PC to save into MEPC on trap entry
 
-    // External interrupt request
+    // External interrupt requests
     input  logic        irq_m_timer,      // machine timer interrupt from timer peripheral
+    input  logic        irq_m_external,   // machine external interrupt from peripheral bus 
 
     // CSR instruction interface (from datapath, active in STATE_EXECUTE)
     input  logic [11:0] csr_addr,         // CSR address field from instruction[31:20]
@@ -33,7 +34,8 @@ module csr_file (
     output logic [31:0] csr_rdata,        // old CSR value (for rd writeback)
     output logic [31:0] mtvec_out,        // trap vector PC
     output logic [31:0] mepc_out,         // exception return PC
-    output logic        irq_pending       // = irq_m_timer & MSTATUS.MIE & MIE.MTIE
+    output logic        irq_pending,      // = (timer | external) pending, gated by MSTATUS.MIE
+    output logic        irq_cause_external // HIGH when the pending interrupt is external, not timer
 );
 
     // --------------------------------------------------------
@@ -65,7 +67,8 @@ module csr_file (
             CSR_MEPC:     csr_rdata = mepc_reg;
             CSR_MCAUSE:   csr_rdata = mcause_reg;
             CSR_MTVAL:    csr_rdata = mtval_reg;
-            CSR_MIP:      csr_rdata = (irq_m_timer ? 32'h80 : 32'h0); // bit 7 = MTIP
+            CSR_MIP:      csr_rdata = (irq_m_timer ? 32'h80 : 32'h0) |
+                                       (irq_m_external ? 32'h800 : 32'h0); // bit 7 = MTIP, bit 11 = MEIP
             CSR_MHARTID:  csr_rdata = 32'b0;
             CSR_CYCLE:    csr_rdata = mcycle_reg;
             CSR_INSTRET:  csr_rdata = minstret_reg;
@@ -147,6 +150,14 @@ module csr_file (
     // --------------------------------------------------------
     assign mtvec_out  = {mtvec_reg[31:2], 2'b00};  // direct mode: BASE only
     assign mepc_out   = mepc_reg;
-    assign irq_pending = irq_m_timer & mstatus_mie & mie_reg[7];
+
+    logic irq_timer_pending;
+    logic irq_external_pending;
+    assign irq_timer_pending    = irq_m_timer    & mstatus_mie & mie_reg[7];
+    assign irq_external_pending = irq_m_external & mstatus_mie & mie_reg[11];
+
+    assign irq_pending        = irq_timer_pending | irq_external_pending;
+    // RISC-V priv spec priority order: MEI > MSI > MTI — external wins if both fire together.
+    assign irq_cause_external = irq_external_pending;
 
 endmodule

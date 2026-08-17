@@ -16,6 +16,7 @@ module tb_csr;
     logic [31:0] trap_cause;
     logic [31:0] trap_pc;
     logic        irq_m_timer;
+    logic        irq_m_external;
     logic [11:0] csr_addr;
     logic [31:0] csr_wdata;
     logic [1:0]  csr_op;
@@ -24,6 +25,7 @@ module tb_csr;
     logic [31:0] mtvec_out;
     logic [31:0] mepc_out;
     logic        irq_pending;
+    logic        irq_cause_external;
 
     int error_count;
 
@@ -36,6 +38,7 @@ module tb_csr;
         .trap_val         (32'b0),
         .trap_pc          (trap_pc),
         .irq_m_timer      (irq_m_timer),
+        .irq_m_external   (irq_m_external),
         .csr_addr         (csr_addr),
         .csr_wdata        (csr_wdata),
         .csr_op           (csr_op),
@@ -43,7 +46,8 @@ module tb_csr;
         .csr_rdata        (csr_rdata),
         .mtvec_out        (mtvec_out),
         .mepc_out         (mepc_out),
-        .irq_pending      (irq_pending)
+        .irq_pending      (irq_pending),
+        .irq_cause_external(irq_cause_external)
     );
 
     initial clk = 1'b0;
@@ -98,6 +102,7 @@ module tb_csr;
         trap_cause        = 32'b0;
         trap_pc           = 32'h0;
         irq_m_timer       = 1'b0;
+        irq_m_external    = 1'b0;
         csr_addr          = 12'h0;
         csr_wdata         = 32'h0;
         csr_op            = 2'b00;
@@ -236,12 +241,44 @@ module tb_csr;
         csr_read(CSR_MHARTID, val);
         check32(val, 32'h0, "MHARTID = 0");
 
+        // --------------------------------------------------
+        // Test 14: external IRQ — irq_pending, MIP.MEIP, mcause
+        // --------------------------------------------------
+        csr_write(CSR_MSTATUS, 32'h0000_0008, 2'b00);  // MIE=1
+        csr_write(CSR_MIE,     32'h0000_0800, 2'b00);  // MEIE=1
+        irq_m_external = 1'b1;
+        #1;
+        check32({31'b0, irq_pending}, 32'h1, "irq_pending asserted (external)");
+        check32({31'b0, irq_cause_external}, 32'h1, "irq_cause_external asserted");
+        csr_read(CSR_MIP, val); check32(val, 32'h0000_0800, "MIP.MEIP set");
+
+        trap_pc    = 32'h0000_0060;
+        trap_cause = EXC_M_EXTERNAL_IRQ;
+        trap_en    = 1'b1;
+        @(posedge clk); #1;
+        trap_en = 1'b0;
+        csr_read(CSR_MCAUSE, val); check32(val, 32'h8000_000B, "trap MCAUSE external IRQ");
+        csr_read(CSR_MEPC,   val); check32(val, 32'h0000_0060, "trap MEPC = interrupted PC");
+        irq_m_external = 1'b0;
+
+        // --------------------------------------------------
+        // Test 15: priority — timer + external both pending, external wins
+        // --------------------------------------------------
+        csr_write(CSR_MSTATUS, 32'h0000_0008, 2'b00);  // re-enable MIE
+        csr_write(CSR_MIE,     32'h0000_0880, 2'b00);  // MTIE=1, MEIE=1
+        irq_m_timer    = 1'b1;
+        irq_m_external = 1'b1;
+        #1;
+        check32({31'b0, irq_cause_external}, 32'h1, "priority: external wins over timer");
+        irq_m_timer    = 1'b0;
+        irq_m_external = 1'b0;
+
         if (error_count != 0) begin
             $display("CSR unit test FAILED: %0d error(s).", error_count);
             $fatal(1);
         end
 
-        $display("CSR unit test passed (16 checks).");
+        $display("CSR unit test passed (22 checks).");
         $finish;
     end
 

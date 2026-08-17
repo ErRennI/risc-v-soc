@@ -87,6 +87,7 @@ package riscv_pkg;
     parameter logic [31:0] EXC_STORE_MISALIGN = 32'h00000006; // store address misaligned
     parameter logic [31:0] EXC_ECALL_M        = 32'h0000000B; // ECALL from M-mode
     parameter logic [31:0] EXC_M_TIMER_IRQ    = 32'h80000007; // machine timer interrupt
+    parameter logic [31:0] EXC_M_EXTERNAL_IRQ = 32'h8000000B; // machine external interrupt (MEIP)
 
     // --------------------------------------------------------
     // CSR addresses (machine-level)

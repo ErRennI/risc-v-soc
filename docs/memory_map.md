@@ -8,7 +8,7 @@
 | Reserved         | 0x00008000   | 0x1FFFFFFF   | —     | Unused                                   |
 | DMEM             | 0x20000000   | 0x20007FFF   | 32 KB | Data memory (RAM)                        |
 | Reserved         | 0x20008000   | 0x3FFFFFFF   | —     | Unused                                   |
-| MMIO             | 0x40000000   | 0x4000FFFF   | 64 KB | Memory-mapped peripherals (UART, Timer, GPIO, 7-seg) |
+| MMIO             | 0x40000000   | 0x4000FFFF   | 64 KB | Memory-mapped peripherals (UART, Timer, GPIO, 7-seg, VGA) |
 | IMEM write window| 0x50000000   | 0x50007FFF   | 32 KB | SW write port into IMEM (bootloader use) |
 
 ### IMEM write window (0x50000000)
@@ -55,6 +55,18 @@ Bootloader layout within IMEM:
 
 Scan rate: CLK_FREQ / 4000 (25 kHz period per digit ≈ 4 kHz multiplex rate).
 Segments are active-LOW on the Nexys A7 (CA=seg[0] … CG=seg[6], DP always off).
+
+### VGA Text Display (Base: 0x40005000, span 0x40005000–0x40007580, 9600 bytes)
+80×60 character tile VRAM, one 16-bit halfword per tile, tile index = `y*80 + x`
+(range 0–4799), register address = `0x40005000 + tile_index * 2`.
+
+| Access | Meaning |
+|--------|---------|
+| 16-bit store (`SH`) at a tile address | Bits[15:12]=attrib (unused by current driver), Bits[11:8]=color, Bits[7:0]=ASCII code |
+| 32-bit store with bit31=1, any address in range | Triggers hardware screen clear (fills with spaces) |
+| 32-bit load, any address in range | Bit0 = `vram_ready` (0 while a clear is in progress) |
+
+Software driver: `sw/drivers/vga.c/h` (`vga_write_char`, `vga_print_str`, `vga_clear_screen`, ...).
 
 ## Reset Behavior
 - PC starts at `PC_RESET` on reset (default 0x00000000; Nexys A7 bootloader build: 0x00003C00)

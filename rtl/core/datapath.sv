@@ -9,7 +9,7 @@ import riscv_pkg::*;
 import alu_ops::*;
 
 module datapath #(
-    parameter logic [31:0] PC_RESET = 32'h0000_0000
+    parameter logic [31:0] PC_RESET = 32'h0000_7800
 ) (
     input  logic        clk,
     input  logic        rst_n,
@@ -47,9 +47,11 @@ module datapath #(
     // Instruction retirement pulse (HIGH in the cycle an instruction retires)
     input  logic        instret_en,
 
-    // External interrupt request
+    // External interrupt requests
     input  logic        irq_m_timer,
+    input  logic        irq_m_external,
     output logic        irq_pending,
+    output logic        irq_cause_external,
 
     // Instruction memory interface
     output logic [31:0] imem_addr,
@@ -305,6 +307,7 @@ module datapath #(
         .trap_val         (trap_val),
         .trap_pc          (pc),
         .irq_m_timer      (irq_m_timer),
+        .irq_m_external   (irq_m_external),
         .csr_addr         (instr_reg[31:20]),
         .csr_wdata        (csr_wdata),
         .csr_op           (csr_op),
@@ -313,7 +316,8 @@ module datapath #(
         .csr_rdata        (csr_rdata),
         .mtvec_out        (mtvec_out),
         .mepc_out         (mepc_out),
-        .irq_pending      (irq_pending)
+        .irq_pending      (irq_pending),
+        .irq_cause_external(irq_cause_external)
     );
 
     // --------------------------------------------------------
