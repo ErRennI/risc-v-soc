@@ -2,14 +2,14 @@
 
 ## Address Space Overview
 
-| Region           | Start        | End          | Size  | Description                              |
-|------------------|--------------|--------------|-------|------------------------------------------|
-| IMEM             | 0x00000000   | 0x00007FFF   | 32 KB | Instruction memory (read via fetch port) |
-| Reserved         | 0x00008000   | 0x1FFFFFFF   | —     | Unused                                   |
-| DMEM             | 0x20000000   | 0x20007FFF   | 32 KB | Data memory (RAM)                        |
-| Reserved         | 0x20008000   | 0x3FFFFFFF   | —     | Unused                                   |
-| MMIO             | 0x40000000   | 0x4000FFFF   | 64 KB | Memory-mapped peripherals (UART, Timer, GPIO, 7-seg, VGA) |
-| IMEM write window| 0x50000000   | 0x50007FFF   | 32 KB | SW write port into IMEM (bootloader use) |
+| Region           | Start        | End          | Size  | Description                                                         |
+|------------------|--------------|--------------|-------|---------------------------------------------------------------------|
+| IMEM             | 0x00000000   | 0x00007FFF   | 32 KB | Instruction memory (read via fetch port)                            |
+| Reserved         | 0x00008000   | 0x1FFFFFFF   | —     | Unused                                                              |
+| DMEM             | 0x20000000   | 0x20007FFF   | 32 KB | Data memory (RAM)                                                   |
+| Reserved         | 0x20008000   | 0x3FFFFFFF   | —     | Unused                                                              |
+| MMIO             | 0x40000000   | 0x4000FFFF   | 64 KB | Memory-mapped peripherals (UART, Timer, GPIO, 7-seg, VGA, Keyboard) |
+| IMEM write window| 0x50000000   | 0x50007FFF   | 32 KB | SW write port into IMEM (bootloader use)                            |
 
 ### IMEM write window (0x50000000)
 
@@ -67,6 +67,18 @@ Segments are active-LOW on the Nexys A7 (CA=seg[0] … CG=seg[6], DP always off)
 | 32-bit load, any address in range | Bit0 = `vram_ready` (0 while a clear is in progress) |
 
 Software driver: `sw/drivers/vga.c/h` (`vga_write_char`, `vga_print_str`, `vga_clear_screen`, ...).
+
+### PS/2 Keyboard (Base: 0x40008000)
+| Offset | Register | Description                                                        |
+|--------|----------|---------------------------------------------------------------------|
+| any    | DATA     | Bits[7:0]=last scan code, Bit8=`kbd_ready` (1 = new code available) |
+
+Reading the register self-clears `kbd_ready`, which also deasserts the CPU's
+external interrupt line (`kbd_ready` is wired directly to `irq_m_external`), so
+a read acts as the interrupt-clear step as well as the data fetch.
+
+Software driver: `sw/drivers/keyboard.c/h` (`kbd_is_key_pressed`, `kbd_has_char`,
+`kbd_get_char_nonblocking`, `kbd_get_char_blocking`, `keyboard_isr_handler`).
 
 ## Reset Behavior
 - PC starts at `PC_RESET` on reset (default 0x00000000; Nexys A7 bootloader build: 0x00003C00)

@@ -192,6 +192,35 @@ sim_sevenseg:
 		tb/peripheral/tb_sevenseg.sv
 	vvp sim_sevenseg.vvp
 
+# --- PS/2 Keyboard Simulation ---
+sim_ps2_keyboard:
+	iverilog -g2012 -o sim_ps2_keyboard.vvp \
+		rtl/peripheral/ps2_keyboard.sv \
+		tb/peripheral/tb_ps2_keyboard.sv
+	vvp sim_ps2_keyboard.vvp
+
+# --- VGA Sync Generator Simulation ---
+sim_vga_sync:
+	iverilog -g2012 -o sim_vga_sync.vvp \
+		rtl/peripheral/vga_sync.sv \
+		tb/peripheral/tb_vga_sync.sv
+	vvp sim_vga_sync.vvp
+
+# --- VGA Tile Lookup / Pixel Generator Simulation ---
+sim_vga_core:
+	iverilog -g2012 -o sim_vga_core.vvp \
+		rtl/peripheral/vga_core.sv \
+		tb/peripheral/tb_vga_core.sv
+	vvp sim_vga_core.vvp
+
+# --- VGA VRAM Controller Simulation ---
+sim_vga_vram_ctrl:
+	iverilog -g2012 -o sim_vga_vram_ctrl.vvp \
+		rtl/clk_divider.sv \
+		rtl/memory/vga_vram_ctrl.sv \
+		tb/memory/tb_vga_vram_ctrl.sv
+	vvp sim_vga_vram_ctrl.vvp
+
 # --- SoC Top-Level Decode Simulation ---
 sim_soc_decode:
 	iverilog -g2012 -o sim_soc_decode.vvp \
@@ -213,6 +242,11 @@ sim_soc_decode:
 		rtl/peripheral/sevenseg.sv \
 		rtl/peripheral/spi_flash.sv \
 		rtl/peripheral/ps2_keyboard.sv \
+		rtl/clk_divider.sv \
+		rtl/memory/font_rom.sv \
+		rtl/memory/vga_vram_ctrl.sv \
+		rtl/peripheral/vga_sync.sv \
+		rtl/peripheral/vga_core.sv \
 		rtl/soc_top.sv \
 		tb/integration/tb_soc_top_decode.sv
 	vvp sim_soc_decode.vvp
@@ -340,7 +374,7 @@ sim_riscv_tests: $(foreach t,$(RV32UI_TESTS),sim_rv32ui_$t) \
                  $(foreach t,$(RV32UM_TESTS),sim_rv32um_$t)
 	@echo "All riscv-tests passed."
 
-sim_all: sim_alu sim_mdu sim_regfile sim_imem sim_dmem sim_uart sim_timer sim_gpio sim_spi_flash sim_sevenseg sim_csr sim_cpu sim_soc_decode sim_cpu_regression sim_cpu_isa sim_cpu_csr sim_cpu_exceptions sim_sva sim_soc_diag sim_calculator
+sim_all: sim_alu sim_mdu sim_regfile sim_imem sim_dmem sim_uart sim_timer sim_gpio sim_spi_flash sim_sevenseg sim_ps2_keyboard sim_vga_sync sim_vga_core sim_vga_vram_ctrl sim_csr sim_cpu sim_soc_decode sim_cpu_regression sim_cpu_isa sim_cpu_csr sim_cpu_exceptions sim_sva sim_soc_diag sim_calculator
 
 # --- ISA Diagnostic Software Build ---
 compile_isa_diag:
@@ -413,6 +447,11 @@ sim_soc_diag: compile_soc_diag
 		rtl/peripheral/sevenseg.sv \
 		rtl/peripheral/spi_flash.sv \
 		rtl/peripheral/ps2_keyboard.sv \
+		rtl/clk_divider.sv \
+		rtl/memory/font_rom.sv \
+		rtl/memory/vga_vram_ctrl.sv \
+		rtl/peripheral/vga_sync.sv \
+		rtl/peripheral/vga_core.sv \
 		rtl/soc_top.sv \
 		tb/integration/tb_soc_diag.sv
 	vvp sim_soc_diag.vvp
@@ -445,11 +484,7 @@ sim_calculator: compile_calculator
 		rtl/clk_divider.sv \
 		rtl/memory/font_rom.sv \
 		rtl/memory/vga_vram_ctrl.sv \
-		rtl/peripheral/vga_address_translator.sv \
-		rtl/peripheral/vga_horizontal_counter.sv \
-		rtl/peripheral/vga_vertical_counter.sv \
 		rtl/peripheral/vga_sync.sv \
-		rtl/peripheral/vga_pixel_gen.sv \
 		rtl/peripheral/vga_core.sv \
 		rtl/core/imm_gen.sv \
 		rtl/core/csr_file.sv \
@@ -505,6 +540,11 @@ sim_benchmark: compile_benchmark
 		rtl/peripheral/sevenseg.sv \
 		rtl/peripheral/spi_flash.sv \
 		rtl/peripheral/ps2_keyboard.sv \
+		rtl/clk_divider.sv \
+		rtl/memory/font_rom.sv \
+		rtl/memory/vga_vram_ctrl.sv \
+		rtl/peripheral/vga_sync.sv \
+		rtl/peripheral/vga_core.sv \
 		rtl/soc_top.sv \
 		tb/integration/tb_benchmark.sv
 	vvp sim_benchmark.vvp
@@ -567,6 +607,11 @@ sim_irq_demo: compile_irq_demo_sim
 		rtl/peripheral/sevenseg.sv \
 		rtl/peripheral/spi_flash.sv \
 		rtl/peripheral/ps2_keyboard.sv \
+		rtl/clk_divider.sv \
+		rtl/memory/font_rom.sv \
+		rtl/memory/vga_vram_ctrl.sv \
+		rtl/peripheral/vga_sync.sv \
+		rtl/peripheral/vga_core.sv \
 		rtl/soc_top.sv \
 		tb/integration/tb_irq_demo.sv
 	vvp sim_irq_demo.vvp

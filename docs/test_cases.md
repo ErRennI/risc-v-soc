@@ -47,6 +47,24 @@ This document is the pre-FPGA verification checklist for the SoC. The goal is to
 - Verify direction register read/write, output register write, input register read, and reset clearing.
 - Add checks for mixed input/output bitmasks if direction is intended to be enforced later in RTL.
 
+### PS/2 Keyboard
+- `make sim_ps2_keyboard`
+- Drives a simulated PS/2 device frame (start + 8 data bits LSB-first + parity + stop) over `ps2_clk`/`ps2_data`.
+- Verify scan-code capture into `button_code`, `kbd_ready` assertion, `kbd_read_en` clearing `kbd_ready`, and reset behavior mid-stream.
+
+### VGA Sync Generator
+- `make sim_vga_sync`
+- Verify `video_on` visible-window gating and `hsync`/`vsync` pulse timing at every region boundary (visible/front porch/sync pulse/back porch) for both the horizontal (800-cycle) and vertical (525-line) counters, plus full-frame wraparound.
+
+### VGA Tile Lookup / Pixel Generator
+- `make sim_vga_core`
+- Exercises `vga_address_translator` (pixel coordinate -> 80x60 tile VRAM index) and `vga_pixel_gen` (font bit + color nibble -> RGB) directly, since both are pure combinational logic within `rtl/peripheral/vga_core.sv`.
+- Covers tile-boundary addressing, the full 16-color palette, `video_on` gating, and font-bit indexing.
+
+### VGA VRAM Controller
+- `make sim_vga_vram_ctrl`
+- Verify CPU-side write (100 MHz) / VGA-side registered read (25 MHz) of the same tile, the full-screen clear FSM (`vram_ready` deassertion for the duration of the clear, fill value `0x0020`), and that a CPU write attempted during a clear is dropped in favor of the clear.
+
 ## 2. CPU Regression Tests
 
 ### Broad CPU Functional Regression
@@ -91,8 +109,8 @@ Expected outcome today: this regression should pass as part of signoff.
 - `make sim_soc_decode`
 - Bench file: `tb/integration/tb_soc_top_decode.sv`
 - Coverage:
-  - UART/timer/GPIO/7-seg region select decode
-  - DMEM vs MMIO read-data routing
+  - UART/timer/GPIO/7-seg/VGA/keyboard region select decode, including the VGA tile-VRAM window boundary (`0x40005000`-`0x40007580`)
+  - DMEM vs MMIO read-data routing, including the VGA `vram_ready` and keyboard `{kbd_ready, kbd_scan_code}` read-data mux
   - top-level address-map sanity for `0x2000_0000` and `0x4000_xxxx`
 
 ### Full-SoC Software Diagnostic
@@ -143,7 +161,7 @@ Run `make sim_all` before every Vivado build — it covers all of the below in o
 
 Only move back to Vivado after the following are true:
 
-- All unit tests pass (`sim_alu`, `sim_mdu`, `sim_regfile`, `sim_imem`, `sim_dmem`, `sim_uart`, `sim_timer`, `sim_gpio`, `sim_sevenseg`).
+- All unit tests pass (`sim_alu`, `sim_mdu`, `sim_regfile`, `sim_imem`, `sim_dmem`, `sim_uart`, `sim_timer`, `sim_gpio`, `sim_sevenseg`, `sim_ps2_keyboard`, `sim_vga_sync`, `sim_vga_core`, `sim_vga_vram_ctrl`).
 - `sim_cpu` and `sim_cpu_regression` pass.
 - `sim_cpu_isa` passes (57 ISA diagnostic tests including RV32M).
 - `sim_soc_decode` passes.

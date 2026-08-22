@@ -14,10 +14,10 @@ bare-metal software stack.
 - **Machine-mode exception handling** — ECALL, EBREAK, illegal instruction, fetch-misalignment, timer interrupt (MRET supported)
 - **Hardware misaligned load/store** — cross-boundary accesses handled in silicon, no trap
 - **CSR support** — MSTATUS, MIE, MTVEC, MSCRATCH, MEPC, MCAUSE, MTVAL, MIP, MHARTID, CYCLE, INSTRET
-- **Five MMIO peripherals** — UART, timer, GPIO, 8-digit 7-segment display, SPI flash
+- **Seven MMIO peripherals** — UART, timer, GPIO, 8-digit 7-segment display, SPI flash, 80×60 VGA text display, PS/2 keyboard
 - **UART bootloader** — upload new programs over serial without re-synthesizing
 - **47 official RISC-V tests** passing (39 rv32ui + 8 rv32um)
-- **Full testbench suite** — 20+ simulation targets, SVA properties, integration tests
+- **Full testbench suite** — 26+ simulation targets, SVA properties, integration tests
 
 ---
 
@@ -176,7 +176,9 @@ nexys_a7_top (FPGA top — 2-FF reset synchronizer)
     ├── timer 0x40001000    4 KB  32-bit compare timer + machine timer IRQ
     ├── gpio  0x40002000    4 KB  16-bit LEDs and switches
     ├── seg7  0x40003000    4 KB  8-digit 7-segment display
-    └── spi   0x40004000    4 KB  SPI flash controller (bootloader use)
+    ├── spi   0x40004000    4 KB  SPI flash controller (bootloader use)
+    ├── vga   0x40005000  9.4 KB  80x60 text-mode VGA display (tile VRAM)
+    └── kbd   0x40008000    4 KB  PS/2 keyboard (scan code + ready flag, drives IRQ)
 ```
 
 ---
@@ -192,6 +194,8 @@ nexys_a7_top (FPGA top — 2-FF reset synchronizer)
 | GPIO | `0x40002000` | 4 KB | 16-bit I/O |
 | 7-Segment | `0x40003000` | 4 KB | 8-digit hex display |
 | SPI flash | `0x40004000` | 4 KB | SPI flash controller |
+| VGA | `0x40005000` | 9.4 KB | 80×60 text-mode display (tile VRAM) |
+| Keyboard | `0x40008000` | 4 KB | PS/2 keyboard (scan code + ready flag) |
 | IMEM write | `0x50000000` | 32 KB | Bootloader write window into IMEM |
 
 Full MMIO register-level detail is in [`docs/memory_map.md`](docs/memory_map.md).
@@ -218,7 +222,7 @@ sudo apt install gcc-riscv64-unknown-elf
 
 ### Run all tests
 ```bash
-make sim_all          # ~20 simulation targets — all must pass before committing
+make sim_all          # ~26 simulation targets — all must pass before committing
 ```
 
 ### Unit tests
@@ -234,6 +238,10 @@ make sim_timer        # Timer counter, compare, interrupt
 make sim_gpio         # GPIO direction, read, write
 make sim_sevenseg     # 7-segment display multiplexer
 make sim_spi_flash    # SPI flash controller
+make sim_ps2_keyboard # PS/2 keyboard scan-code capture + ready flag
+make sim_vga_sync     # VGA sync generator (hsync/vsync/video_on timing)
+make sim_vga_core     # VGA tile lookup + pixel/color generation
+make sim_vga_vram_ctrl # VGA tile VRAM controller (write/read/clear)
 ```
 
 ### CPU tests
@@ -248,6 +256,7 @@ make sim_sva              # SVA structural properties over 895 cycles
 
 ### Integration tests
 ```bash
+make sim_soc_decode       # Top-level MMIO address decode + read-data mux
 make sim_soc_diag         # Full-SoC diagnostic firmware
 make sim_calculator       # Calculator demo (ADD/MUL/SUB/DIV via switches)
 make sim_benchmark        # Performance benchmark (CPI measurement)
@@ -377,13 +386,17 @@ risc-v-soc/
 │   │   └── riscv_pkg.sv        — shared constants (opcodes, states, CSR addresses)
 │   ├── memory/
 │   │   ├── imem.sv             — 32 KB instruction ROM (with IMEM write window)
-│   │   └── dmem.sv             — 32 KB data RAM (byte-enable write port)
+│   │   ├── dmem.sv             — 32 KB data RAM (byte-enable write port)
+│   │   └── vga_vram_ctrl.sv    — VGA tile VRAM controller (MMIO read/write + clear)
 │   ├── peripheral/
 │   │   ├── uart.sv             — UART TX/RX (configurable baud)
 │   │   ├── timer.sv            — 32-bit compare timer, sticky IRQ flag
 │   │   ├── gpio.sv             — 16-bit GPIO with direction register
 │   │   ├── sevenseg.sv         — 8-digit 7-segment display multiplexer
-│   │   └── spi_flash.sv        — SPI flash controller
+│   │   ├── spi_flash.sv        — SPI flash controller
+│   │   ├── vga_sync.sv         — sync generator (h/v counters, hsync/vsync/video_on)
+│   │   ├── vga_core.sv         — tile lookup + glyph/color rendering (uses vga_sync)
+│   │   └── ps2_keyboard.sv     — PS/2 keyboard receiver (scan code + ready flag)
 │   ├── soc_top.sv              — SoC integrator (CPU + memories + MMIO decoder)
 │   └── nexys_a7_top.sv         — FPGA top (clock, 2-FF reset synchronizer)
 ├── tb/
@@ -397,7 +410,7 @@ risc-v-soc/
 │   ├── startup/crt0_boot.S     — Bootloader reset handler
 │   ├── linker/linker.ld        — Linker script (IMEM + DMEM split)
 │   ├── linker/linker_boot.ld   — Bootloader linker script
-│   ├── drivers/                — C peripheral drivers (uart, gpio, timer, sevenseg, spi_flash)
+│   ├── drivers/                — C peripheral drivers (uart, gpio, timer, sevenseg, spi_flash, vga, keyboard)
 │   ├── tests/                  — Demo and test programs
 │   └── riscv-tests/            — riscv_test.h header for official test suite
 ├── third_party/riscv-tests/    — Official RISC-V test suite (git submodule)

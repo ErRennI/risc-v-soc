@@ -123,6 +123,26 @@ module tb_soc_top_decode;
         check_bit(dut.gpio_sel,     1'b0, "GPIO deselect when 7-seg selected");
         check_bit(dut.sevenseg_sel, 1'b1, "7-seg select");
 
+        force dut.dmem_addr = 32'h4000_5000;  // VGA tile VRAM base
+        #1;
+        check_bit(dut.uart_sel,     1'b0, "UART deselect when VGA selected");
+        check_bit(dut.sevenseg_sel, 1'b0, "7-seg deselect when VGA selected");
+        check_bit(dut.vga_sel,      1'b1, "VGA select");
+        check_bit(dut.kbd_sel,      1'b0, "Keyboard deselect when VGA selected");
+
+        force dut.dmem_addr = 32'h4000_757F;  // last byte of the VGA tile VRAM window
+        #1;
+        check_bit(dut.vga_sel, 1'b1, "VGA select at top of its window (0x40007580 - 1)");
+
+        force dut.dmem_addr = 32'h4000_7580;  // one past the VGA tile VRAM window
+        #1;
+        check_bit(dut.vga_sel, 1'b0, "VGA deselect just past its window");
+
+        force dut.dmem_addr = 32'h4000_8000;  // PS/2 keyboard base
+        #1;
+        check_bit(dut.vga_sel, 1'b0, "VGA deselect when keyboard selected");
+        check_bit(dut.kbd_sel, 1'b1, "Keyboard select");
+
         // --- Test 2: Read-data mux routing ---
         // DMEM path: dmem_read_data_raw is already registered by BRAM; check combinationally.
         force dut.dmem_addr = 32'h2000_0000;
@@ -149,12 +169,27 @@ module tb_soc_top_decode;
         @(posedge clk_100mhz); #1;
         check_word(dut.dmem_read_data, 32'hCCCC_0003, "GPIO read mux");
 
+        force dut.vram_ready    = 1'b0;
+        force dut.kbd_ready     = 1'b1;
+        force dut.kbd_scan_code = 8'h1C;
+
+        force dut.dmem_addr = 32'h4000_5000;
+        @(posedge clk_100mhz); #1;
+        check_word(dut.dmem_read_data, 32'h0000_0000, "VGA read mux (vram_ready=0)");
+
+        force dut.dmem_addr = 32'h4000_8000;
+        @(posedge clk_100mhz); #1;
+        check_word(dut.dmem_read_data, 32'h0000_011C, "Keyboard read mux (ready=1, code=0x1C)");
+
         release dut.dmem_read_en;
         release dut.dmem_addr;
         release dut.dmem_read_data_raw;
         release dut.uart_read_data;
         release dut.timer_read_data;
         release dut.gpio_read_data;
+        release dut.vram_ready;
+        release dut.kbd_ready;
+        release dut.kbd_scan_code;
 
         if (error_count != 0) begin
             $display("SoC decode regression failed with %0d error(s).", error_count);
