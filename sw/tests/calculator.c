@@ -21,10 +21,10 @@
 //           keystroke, clearing only the previously drawn span
 //           (prev_start_x/prev_total_len) rather than the full row.
 // ============================================================
-
+ 
 #include "../drivers/vga.h"
 #include "../drivers/keyboard.h"
-
+ 
 static char op_symbol(char op_letter)
 {
     switch (op_letter) {
@@ -35,20 +35,20 @@ static char op_symbol(char op_letter)
         default:  return 0;
     }
 }
-
+ 
 static int get_int_len(int number) {
     if (number == 0) return 1;
-
+ 
     int len = 0;
     unsigned int n;
-
+ 
     if (number < 0) {
         len = 1;
         n = (unsigned int)(-(number + 1)) + 1;
     } else {
         n = (unsigned int)number;
     }
-
+ 
     if (n >= 1000000000u) return len + 10;
     if (n >= 100000000u)  return len + 9;
     if (n >= 10000000u)   return len + 8;
@@ -58,10 +58,10 @@ static int get_int_len(int number) {
     if (n >= 1000u)       return len + 4;
     if (n >= 100u)        return len + 3;
     if (n >= 10u)         return len + 2;
-
+ 
     return len + 1;
 }
-
+ 
 static unsigned int str_to_uint(const char *s, int *overflow) {
     unsigned int v = 0;
     while(*s) {
@@ -72,15 +72,15 @@ static unsigned int str_to_uint(const char *s, int *overflow) {
     }
     return v;
 }
-
+ 
 static int str_len(const char *s) {
     int n = 0;
     while (*s++) n++;
     return n;
 }
-
+ 
 typedef enum {ENTER_A, ENTER_OP, ENTER_B, RESULT} calc_state_t;
-
+ 
 static const char *status_text(calc_state_t state, int previewed) {
     switch (state) {
         case ENTER_A:
@@ -97,9 +97,8 @@ static const char *status_text(calc_state_t state, int previewed) {
     }
     return "";
 }
-
-int main(void)
-{
+ 
+int main(void) {
     vga_init();
     calc_state_t state = ENTER_A;
     char buff_a[12] = {0}, buff_b[12] = {0};
@@ -109,18 +108,18 @@ int main(void)
     int prev_start_x = 0;
     int prev_total_len = 0;
     int prev_status_len = 0;
-
+ 
     // Controls legend — written once, never cleared, so it always stays put.
-    vga_print_str(0, 0,
+    vga_print_str(0, 1,
         "0-9:digits  A:+ S:- M:* D:/  Enter:confirm(x2)  Backspace:edit/back",
         VGA_COLOR_LIGHT_GREY);
-
-    while (1) {
+ 
+    while(1) {
         keyboard_isr_handler();
         if(!kbd_has_char()) continue;
-
+ 
         char c = kbd_get_char_nonblocking();
-
+ 
         switch(state) {
             case ENTER_A: 
                 if(c >= '0' && c <= '9') {
@@ -197,20 +196,24 @@ int main(void)
                 op = 0; previewed = 0;
                 break;
         }
-
-        int n = len_a;
+ 
+        int len_a_disp = (len_a > 0) ? len_a : 1;
+        int len_b_disp = (len_b > 0) ? len_b : 1;
+ 
+        int n = len_a_disp;
         if(op != 0) n += 3;
-        n += len_b;
-
+        n += len_b_disp;
+ 
         unsigned int a = 0;
         unsigned int b = 0;
         unsigned int result = 0;
         int overflow = 0;
-
+        int div_by_zero = 0;
+ 
         if(state == RESULT) {
             a = str_to_uint(buff_a, &overflow);
             b = str_to_uint(buff_b, &overflow);
-
+ 
             switch(op) {
                 case 'A':
                     result = a + b;
@@ -218,57 +221,76 @@ int main(void)
                     break;
                 case 'S':
                     result = a - b;
+                    if (b > a) overflow = 1; /* unsigned underflow guard */
                     break;
                 case 'M':
                     result = a * b;
                     if (a != 0 && result / a != b) overflow = 1;
                     break;
                 case 'D':
-                    result = b ? a / b : 0xFFFFFFFFu;
+                    if (b == 0) {
+                        div_by_zero = 1;
+                        result = 0;
+                    } else {
+                        result = a / b;
+                    }
                     break;
             }
-            n += 3 + (overflow ? str_len("OVERFLOW") : get_int_len((int)result));
+            /* vga_print_int takes a signed int; any unsigned result above
+             * INT_MAX would silently come out negative on screen, so treat
+             * that as an overflow too instead of showing a wrong sign. */
+            if (!div_by_zero && result > 0x7FFFFFFFu) overflow = 1;
+ 
+            if (overflow) {
+                n += 3 + str_len("OVERFLOW");
+            } else if (div_by_zero) {
+                n += 3 + str_len("DIV BY ZERO");
+            } else {
+                n += 3 + get_int_len((int)result);
+            }
         }
-
+ 
         const char *status = status_text(state, previewed);
         int status_len = str_len(status);
-        if (prev_status_len > 0) {
+        if(prev_status_len > 0) {
             vga_clear_line_range(0, 25, prev_status_len);
         }
         vga_print_str(0, 25, status, VGA_COLOR_CYAN);
         prev_status_len = status_len;
-
+ 
         int curr_x = (80 - n) / 2;
         if(prev_total_len > 0 ) {
             vga_clear_line_range(prev_start_x, 28, prev_total_len);
         }
-
+ 
         prev_start_x = curr_x;
         prev_total_len = n;
-
-        vga_print_str(curr_x, 28, buff_a, VGA_COLOR_WHITE);
-        curr_x += len_a;
+ 
+        vga_print_str(curr_x, 28, (len_a > 0) ? buff_a : "0", VGA_COLOR_WHITE);
+        curr_x += len_a_disp;
         if (op != 0) {
             vga_write_char(curr_x++, 28, ' ', VGA_COLOR_WHITE);
             vga_write_char(curr_x++, 28, op_symbol(op), VGA_COLOR_YELLOW);
             vga_write_char(curr_x++, 28, ' ', VGA_COLOR_WHITE);
         }
-
-        vga_print_str(curr_x, 28, buff_b, VGA_COLOR_WHITE);
-        curr_x += len_b;
-
+ 
+        vga_print_str(curr_x, 28, (len_b > 0) ? buff_b : "0", VGA_COLOR_WHITE);
+        curr_x += len_b_disp;
+ 
         if(state == RESULT) {
             vga_write_char(curr_x++, 28, ' ', VGA_COLOR_WHITE);
             vga_write_char(curr_x++, 28, '=', VGA_COLOR_YELLOW);
             vga_write_char(curr_x++, 28, ' ', VGA_COLOR_WHITE);
             if (overflow) {
                 vga_print_str(curr_x, 28, "OVERFLOW", VGA_COLOR_LIGHT_RED);
+            } else if (div_by_zero) {
+                vga_print_str(curr_x, 28, "DIV BY ZERO", VGA_COLOR_LIGHT_RED);
             } else {
                 curr_x = vga_print_int(curr_x, 28, (int)result, VGA_COLOR_DARK_GREEN);
             }
         }
         
     }
-
+ 
     return 0;
 }

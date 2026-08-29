@@ -14,10 +14,16 @@ int vga_print_int(int x, int y, int number, unsigned char color) {
     int current_x = x;
 
 
-    //DOESNT print 0
     if(number == 0) {
-        vga_write_char(x, y, '0', color);
-        return current_x++;
+        if(current_x >= 80) {
+            current_x = 0;
+            y++;
+        }
+        if(y >= 60) {
+            return current_x;
+        }
+        vga_write_char(current_x, y, '0', color);
+        return current_x + 1;
     }
 
     if(number < 0) {
