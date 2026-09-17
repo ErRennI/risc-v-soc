@@ -8,7 +8,7 @@
 | Reserved         | 0x00008000   | 0x1FFFFFFF   | —     | Unused                                                              |
 | DMEM             | 0x20000000   | 0x20007FFF   | 32 KB | Data memory (RAM)                                                   |
 | Reserved         | 0x20008000   | 0x3FFFFFFF   | —     | Unused                                                              |
-| MMIO             | 0x40000000   | 0x4000FFFF   | 64 KB | Memory-mapped peripherals (UART, Timer, GPIO, 7-seg, VGA, Keyboard) |
+| MMIO             | 0x40000000   | 0x4000FFFF   | 64 KB | Memory-mapped peripherals (UART, Timer, GPIO, 7-seg, SPI flash, VGA, Keyboard) |
 | IMEM write window| 0x50000000   | 0x50007FFF   | 32 KB | SW write port into IMEM (bootloader use)                            |
 
 ### IMEM write window (0x50000000)
@@ -19,10 +19,10 @@ at the corresponding index. The CPU continues fetching from the normal IMEM read
 over serial and write it into IMEM without a bitstream rebuild.
 
 Bootloader layout within IMEM:
-| Words     | Byte range           | Contents                                   |
-|-----------|----------------------|--------------------------------------------|
-| 0–7935    | 0x0000–0x7BFF (31 KB)| User program (uploaded via UART)           |
-| 7936–8191 | 0x7C00–0x7FFF (1 KB) | Bootloader code (PC_RESET = 0x7C00)        |
+| Words     | Byte range            | Contents                            |
+|-----------|-----------------------|--------------------------------------|
+| 0–7679    | 0x0000–0x77FF (30 KB) | User program (uploaded via UART)    |
+| 7680–8191 | 0x7800–0x7FFF (2 KB)  | Bootloader code (PC_RESET = 0x7800) |
 
 ## MMIO Register Map
 
@@ -56,6 +56,14 @@ Bootloader layout within IMEM:
 Scan rate: CLK_FREQ / 4000 (25 kHz period per digit ≈ 4 kHz multiplex rate).
 Segments are active-LOW on the Nexys A7 (CA=seg[0] … CG=seg[6], DP always off).
 
+### SPI Flash Controller (Base: 0x40004000)
+| Offset | Register | Description                                             |
+|--------|----------|----------------------------------------------------------|
+| 0x00   | DATA     | Write: start an 8-bit SPI transfer with this byte (only accepted while not busy) |
+| 0x04   | STATUS   | Bit0 = `busy` (transfer in progress)                     |
+
+Used by the UART bootloader path for reading/writing the board's SPI configuration flash.
+
 ### VGA Text Display (Base: 0x40005000, span 0x40005000–0x40007580, 9600 bytes)
 80×60 character tile VRAM, one 16-bit halfword per tile, tile index = `y*80 + x`
 (range 0–4799), register address = `0x40005000 + tile_index * 2`.
@@ -81,8 +89,8 @@ Software driver: `sw/drivers/keyboard.c/h` (`kbd_is_key_pressed`, `kbd_has_char`
 `kbd_get_char_nonblocking`, `kbd_get_char_blocking`, `keyboard_isr_handler`).
 
 ## Reset Behavior
-- PC starts at `PC_RESET` on reset (default 0x00000000; Nexys A7 bootloader build: 0x00003C00)
-- Stack pointer initialized to 0x20003FFC (top of DMEM)
+- PC starts at `PC_RESET` on reset. The Nexys A7 bootloader build (`nexys_a7_top.sv`, `soc_top.sv`, `cpu.sv`) hard-codes `PC_RESET = 0x00007800`, the start of the bootloader code region.
+- Stack pointer initialized to 0x20007FFC (top of the 32 KB DMEM, per `linker.ld` / `linker_boot.ld`: `_stack_top = ORIGIN(DMEM) + LENGTH(DMEM) - 4`)
 
 ## Access Alignment Policy
 - Byte accesses (`LB`, `LBU`, `SB`) use exact byte addresses.

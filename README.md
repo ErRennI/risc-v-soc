@@ -17,7 +17,7 @@ bare-metal software stack.
 - **Seven MMIO peripherals** — UART, timer, GPIO, 8-digit 7-segment display, SPI flash, 80×60 VGA text display, PS/2 keyboard
 - **UART bootloader** — upload new programs over serial without re-synthesizing
 - **47 official RISC-V tests** passing (39 rv32ui + 8 rv32um)
-- **Full testbench suite** — 26+ simulation targets, SVA properties, integration tests
+- **Full testbench suite** — 27 simulation targets, SVA properties, integration tests
 
 ---
 
@@ -170,7 +170,7 @@ nexys_a7_top (FPGA top — 2-FF reset synchronizer)
     ├── cpu
     │   ├── control_unit   — multi-cycle FSM, exception/interrupt control
     │   └── datapath       — PC, register file, ALU, MDU, CSR file, immediate gen
-    ├── imem  0x00000000   32 KB  instruction ROM (bootloader lives in top 1 KB)
+    ├── imem  0x00000000   32 KB  instruction ROM (bootloader lives in top 2 KB)
     ├── dmem  0x20000000   32 KB  data RAM / stack
     ├── uart  0x40000000    4 KB  serial (115 200 baud default)
     ├── timer 0x40001000    4 KB  32-bit compare timer + machine timer IRQ
@@ -222,7 +222,8 @@ sudo apt install gcc-riscv64-unknown-elf
 
 ### Run all tests
 ```bash
-make sim_all          # ~26 simulation targets — all must pass before committing
+make sim_all          # 24 simulation targets — all must pass before committing
+                      # (sim_benchmark, sim_irq_demo, and sim_riscv_tests run separately)
 ```
 
 ### Unit tests
@@ -250,7 +251,7 @@ make sim_cpu              # Basic CPU integration
 make sim_cpu_regression   # Load/store/branch/jump regression
 make sim_cpu_csr          # ECALL + timer interrupt end-to-end
 make sim_cpu_exceptions   # Illegal instr, EBREAK, misalign, FENCE
-make sim_cpu_isa          # Compiled ISA diagnostic (53 named tests)
+make sim_cpu_isa          # Compiled ISA diagnostic (all RV32IM opcodes)
 make sim_sva              # SVA structural properties over 895 cycles
 ```
 
@@ -322,8 +323,8 @@ python3 scripts/uart_upload.py sw/tests/irq_demo.bin /dev/ttyUSB0
 # Press CPU reset — new program runs immediately
 ```
 
-The bootloader occupies the top 1 KB of IMEM (`0x7C00–0x7FFF`). Uploaded programs
-are written to `0x0000–0x7BFF` via the IMEM write window at `0x50000000`.
+The bootloader occupies the top 2 KB of IMEM (`0x7800–0x7FFF`). Uploaded programs
+are written to `0x0000–0x77FF` via the IMEM write window at `0x50000000`.
 
 ---
 
@@ -336,7 +337,9 @@ are written to `0x0000–0x7BFF` via the IMEM write window at `0x50000000`.
 | `irq_demo.c` | `compile_irq_demo` | Timer ISR every 0.5 s: toggles LED[15], increments 7-seg counter, main loop echoes UART |
 | `benchmark.c` | `compile_benchmark` | 1000-iteration mixed workload; prints cycles, instructions, CPI, MIPS over UART |
 | `bootloader.c` | `compile_bootloader` | UART bootloader: receives `.bin` over serial, writes to IMEM, jumps to entry point |
-| `isa_diag.S` | `compile_isa_diag` | Assembly-level regression covering all RV32IM opcodes (53 named test cases) |
+| `isa_diag.S` | `compile_isa_diag` | Assembly-level regression covering all RV32IM opcodes |
+| `keyboard_irq_demo.c` | `compile_keyboard_irq_demo` | PS/2 keyboard external-interrupt demo: ISR decodes scan codes via `keyboard_isr_handler()`, main loop echoes buffered chars over UART |
+| `kbd_raw_dump.c` | `compile_kbd_raw_dump` | Diagnostic: dumps every raw PS/2 scan code byte as hex over UART, bypassing key decode/dedupe |
 
 ---
 
@@ -356,11 +359,16 @@ are written to `0x0000–0x7BFF` via the IMEM write window at `0x50000000`.
 | `tb_alu.sv` | 11 | All ALU operations |
 | `tb_mdu.sv` | 20 | All MDU ops, divide-by-zero, signed overflow |
 | `tb_csr.sv` | 25 | All CSR instructions, trap entry, MRET, irq_pending |
+| `tb_ps2_keyboard.sv` | — | Scan-code capture, `kbd_ready`/`kbd_read_en` handshake, reset mid-stream |
+| `tb_vga_sync.sv` | — | `video_on`/`hsync`/`vsync` timing at every region boundary, full-frame wraparound |
+| `tb_vga_core.sv` | — | Tile-address translation, 16-color palette, font-bit indexing |
+| `tb_vga_vram_ctrl.sv` | — | CPU/VGA clock-domain tile read/write, full-screen clear FSM, write-during-clear arbitration |
 | `tb_cpu_csr.sv` | 10 | ECALL end-to-end, timer interrupt end-to-end |
 | `tb_cpu_exceptions.sv` | 34 | Illegal instr, EBREAK, misaligned fetch, FENCE, hardware misaligned load/store |
 | `tb_cpu_isa_diag.sv` | — | Runs compiled ISA diagnostic; checks pass signature |
 | `tb_cpu_regression.sv` | 10 | Load/store/branch/jump instruction mix |
 | `tb_sva.sv` | 5 | SVA structural properties over full ISA diagnostic run |
+| `tb_soc_top_decode.sv` | — | MMIO address decode, DMEM/MMIO read-data mux, VGA/keyboard region boundaries |
 | `tb_soc_diag.sv` | — | Full-SoC diagnostic firmware integration |
 | `tb_calculator.sv` | 13 | Calculator: ADD, MUL, SUB, DIV/0, DIV via UART |
 | `tb_irq_demo.sv` | — | Banner received, ISR fires ≥ 3×, LED[15] toggles, 7-seg non-zero |
@@ -387,7 +395,8 @@ risc-v-soc/
 │   ├── memory/
 │   │   ├── imem.sv             — 32 KB instruction ROM (with IMEM write window)
 │   │   ├── dmem.sv             — 32 KB data RAM (byte-enable write port)
-│   │   └── vga_vram_ctrl.sv    — VGA tile VRAM controller (MMIO read/write + clear)
+│   │   ├── vga_vram_ctrl.sv    — VGA tile VRAM controller (MMIO read/write + clear)
+│   │   └── font_rom.sv         — 8x8 glyph font ROM (reads `font_data.mem`)
 │   ├── peripheral/
 │   │   ├── uart.sv             — UART TX/RX (configurable baud)
 │   │   ├── timer.sv            — 32-bit compare timer, sticky IRQ flag
@@ -395,10 +404,12 @@ risc-v-soc/
 │   │   ├── sevenseg.sv         — 8-digit 7-segment display multiplexer
 │   │   ├── spi_flash.sv        — SPI flash controller
 │   │   ├── vga_sync.sv         — sync generator (h/v counters, hsync/vsync/video_on)
-│   │   ├── vga_core.sv         — tile lookup + glyph/color rendering (uses vga_sync)
+│   │   ├── vga_core.sv         — tile lookup + glyph/color rendering (uses vga_sync, font_rom)
 │   │   └── ps2_keyboard.sv     — PS/2 keyboard receiver (scan code + ready flag)
 │   ├── soc_top.sv              — SoC integrator (CPU + memories + MMIO decoder)
-│   └── nexys_a7_top.sv         — FPGA top (clock, 2-FF reset synchronizer)
+│   ├── nexys_a7_top.sv         — FPGA top (clock, 2-FF reset synchronizer)
+│   ├── clk_divider.sv          — 100 MHz → 25 MHz VGA pixel-clock divider
+│   └── font_data.mem           — IBM VGA 8x8 font ROM init file (`$readmemh` source for font_rom.sv)
 ├── tb/
 │   ├── core/                   — CPU and CSR unit testbenches
 │   ├── memory/                 — IMEM / DMEM testbenches
@@ -420,7 +431,8 @@ risc-v-soc/
 │   ├── make_boot_mem.py        — combines user slot + bootloader into one .mem
 │   └── uart_upload.py          — uploads .bin over serial to the bootloader
 ├── docs/
-│   └── memory_map.md           — Full MMIO register-level documentation
+│   ├── memory_map.md           — Full MMIO register-level documentation
+│   └── test_cases.md           — Pre-FPGA verification checklist and testbench coverage
 └── Makefile                    — All build, simulation, and FPGA targets
 ```
 
