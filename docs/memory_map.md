@@ -64,7 +64,7 @@ Segments are active-LOW on the Nexys A7 (CA=seg[0] … CG=seg[6], DP always off)
 
 Used by the UART bootloader path for reading/writing the board's SPI configuration flash.
 
-### VGA Text Display (Base: 0x40005000, span 0x40005000–0x40007580, 9600 bytes)
+### VGA Text Display (Base: 0x40005000, span 0x40005000–0x4000757F, 9600 bytes)
 80×60 character tile VRAM, one 16-bit halfword per tile, tile index = `y*80 + x`
 (range 0–4799), register address = `0x40005000 + tile_index * 2`.
 

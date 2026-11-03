@@ -1,271 +1,345 @@
 // ============================================================
 // Module  : tb_calculator
-// Purpose : Integration test for the calculator demo firmware.
-//           Stimulates switch and button inputs; verifies LED
-//           output, 7-segment display register, and one UART
-//           output line.
+// Purpose : Integration test for the PS/2 keyboard + VGA calculator
+//           firmware (sw/tests/calculator.c).
+//
+//           Types key sequences into soc_top's PS/2 pins exactly like a
+//           keyboard (make code, then F0 + break code), and reads the
+//           result line straight out of the VGA tile VRAM.
+//
+//           Each expression: digits of A, Enter x2, operator key,
+//           Enter x2, digits of B, Enter x2 -> result on row 28.
+//           One extra key (Space) then starts the next calculation.
 // ============================================================
 
 module tb_calculator;
 
-    localparam int UART_CLK_FREQ = 100_000_000;
-    localparam int UART_BAUD     = 5_000_000;
-    localparam int BAUD_DIV      = UART_CLK_FREQ / UART_BAUD;  // 20
-    localparam int SIM_TIMEOUT   = 100_000;
+    // PS/2 half-period in 100 MHz cycles. Real keyboards run ~10-16 kHz;
+    // a faster clock keeps the sim short. The RTL only needs a clean
+    // falling edge seen by its 3-sample filter, so anything >> 3 works.
+    localparam int PS2_HALF      = 50;
+    localparam int KEY_TIMEOUT   = 400_000;   // cycles for CPU to read one byte
+    localparam int LINE_TIMEOUT  = 400_000;   // cycles for result to appear
+    localparam int RESULT_ROW    = 28;
+    localparam int STATUS_ROW    = 25;
+
+    // PS/2 scan code set 2 make codes, as decoded by keyboard.c
+    localparam logic [7:0] K_ENTER = 8'h5A;
+    localparam logic [7:0] K_BKSP  = 8'h66;
+    localparam logic [7:0] K_SPACE = 8'h29;
+    localparam logic [7:0] K_A     = 8'h1C;   // add
+    localparam logic [7:0] K_S     = 8'h1B;   // subtract
+    localparam logic [7:0] K_M     = 8'h3A;   // multiply
+    localparam logic [7:0] K_D     = 8'h23;   // divide
 
     logic        clk_100mhz;
     logic        rst_n;
-    logic        uart_tx;
-    logic        uart_rx;
-    logic [15:0] leds;
-    logic [15:0] switches;
-    logic [4:0]  buttons;
-    logic [7:0]  an;
-    logic [6:0]  seg;
-    logic        dp;
+    logic        ps2_clk;
+    logic        ps2_data;
 
-    int  error_count;
-
-    // UART capture buffers for Test 6 (must be module-scope for iverilog)
-    logic [7:0] uart_buf [0:13];
-    logic       uart_ok;
-    logic       uart_capture_ok;
-    integer     uart_i;
+    int error_count;
 
     soc_top #(
-        .IMEM_FILE      ("sw/tests/calculator.mem"),
-        .UART_CLK_FREQ  (UART_CLK_FREQ),
-        .UART_BAUD_RATE (UART_BAUD)
+        .IMEM_FILE ("sw/tests/calculator.mem"),
+        .PC_RESET  (32'h0000_0000)
     ) dut (
         .clk_100mhz (clk_100mhz),
         .rst_n      (rst_n),
-        .uart_tx    (uart_tx),
-        .uart_rx    (uart_rx),
-        .leds       (leds),
-        .switches   (switches),
-        .buttons    (buttons),
-        .an         (an),
-        .seg        (seg),
-        .dp         (dp),
+        .uart_tx    (),
+        .uart_rx    (1'b1),
+        .leds       (),
+        .switches   (16'h0),
+        .buttons    (5'b0),
+        .an         (),
+        .seg        (),
+        .dp         (),
+        .ps2_clk    (ps2_clk),
+        .ps2_data   (ps2_data),
         .spi_sck    (),
         .spi_cs_n   (),
         .spi_mosi   (),
         .spi_miso   (1'b0),
         .spi_wp_n   (),
-        .spi_hold_n ()
+        .spi_hold_n (),
+        .hsync      (),
+        .vsync      (),
+        .vga_r      (),
+        .vga_g      (),
+        .vga_b      ()
     );
 
     initial clk_100mhz = 1'b0;
     always #5 clk_100mhz = ~clk_100mhz;
 
-    // --- Receive one UART byte; waits up to `timeout_cyc` for start bit ---
-    task automatic recv_uart_byte(
-        output logic [7:0] value,
-        output logic       ok,
-        input  int         timeout_cyc
-    );
-        integer t, i;
+    // ---------------- PS/2 device model ----------------
+
+    // Send one 11-bit frame: start(0), 8 data bits LSB first, odd parity,
+    // stop(1). Data changes while the clock is high; the host samples on
+    // the falling edge.
+    task automatic ps2_send_byte(input logic [7:0] b);
+        logic [10:0] frame;
+        int i;
         begin
-            value = 8'h00;
-            ok    = 1'b0;
-            t     = 0;
-            while (uart_tx !== 1'b0 && t < timeout_cyc) begin
-                @(posedge clk_100mhz);
-                t++;
+            frame = {1'b1, ~^b, b, 1'b0};
+            for (i = 0; i < 11; i++) begin
+                ps2_data = frame[i];
+                repeat (PS2_HALF) @(posedge clk_100mhz);
+                ps2_clk = 1'b0;
+                repeat (PS2_HALF) @(posedge clk_100mhz);
+                ps2_clk = 1'b1;
             end
-            if (t < timeout_cyc) begin
-                // Start bit detected — sample at middle of each data bit
-                repeat (BAUD_DIV + BAUD_DIV / 2) @(posedge clk_100mhz);
-                for (i = 0; i < 8; i = i + 1) begin
-                    value[i] = uart_tx;
-                    repeat (BAUD_DIV) @(posedge clk_100mhz);
-                end
-                repeat (BAUD_DIV) @(posedge clk_100mhz);  // consume stop bit
-                ok = 1'b1;
-            end
+            ps2_data = 1'b1;
         end
     endtask
 
-    // --- Wait for leds == expected, timeout_cyc limit ---
-    task automatic wait_leds(
-        input  logic [15:0] expected,
-        input  string       name,
-        input  int          timeout_cyc
-    );
-        integer t;
+    // The keyboard register holds one byte. Wait until firmware has read
+    // it (kbd_ready back to 0) before sending the next, as a real
+    // keyboard's ~1 ms byte spacing would allow.
+    task automatic wait_byte_consumed(input logic [7:0] b);
+        int t;
         begin
             t = 0;
-            while (leds !== expected && t < timeout_cyc) begin
+            while (dut.kbd_ready !== 1'b0 && t < KEY_TIMEOUT) begin
                 @(posedge clk_100mhz);
                 t++;
             end
-            if (leds !== expected) begin
+            if (t >= KEY_TIMEOUT) begin
                 error_count++;
-                $display("FAIL: %s — leds timeout: expected 0x%04h, got 0x%04h", name, expected, leds);
-                $display("  DEBUG: pc=0x%08h buttons=0x%0h switches=0x%04h",
-                    dut.u_cpu.u_datapath.pc, buttons, switches);
-            end else
-                $display("PASS: %s — leds=0x%04h after %0d cycles", name, leds, t);
+                $display("FAIL: firmware never read PS/2 byte 0x%02h", b);
+            end
         end
     endtask
 
-    // --- Check 7-seg display register value ---
-    task automatic check_display(input logic [31:0] expected, input string name);
-        logic [31:0] actual;
+    task automatic ps2_byte(input logic [7:0] b);
         begin
-            actual = dut.u_sevenseg.display_reg;
-            if (actual !== expected) begin
+            ps2_send_byte(b);
+            // kbd_ready rises a cycle or two after the stop bit is sampled
+            repeat (4) @(posedge clk_100mhz);
+            wait_byte_consumed(b);
+        end
+    endtask
+
+    // One key tap: make code, then break (F0 + code)
+    task automatic tap(input logic [7:0] code);
+        begin
+            ps2_byte(code);
+            ps2_byte(8'hF0);
+            ps2_byte(code);
+        end
+    endtask
+
+    task automatic type_digits(input string s);
+        int i;
+        begin
+            for (i = 0; i < s.len(); i++) tap(digit_code(s[i]));
+        end
+    endtask
+
+    function automatic logic [7:0] digit_code(input byte c);
+        case (c)
+            "0": return 8'h45; "1": return 8'h16; "2": return 8'h1E;
+            "3": return 8'h26; "4": return 8'h25; "5": return 8'h2E;
+            "6": return 8'h36; "7": return 8'h3D; "8": return 8'h3E;
+            "9": return 8'h46;
+            default: return 8'h00;
+        endcase
+    endfunction
+
+    // ---------------- VRAM readback ----------------
+
+    function automatic byte tile_char(input int x, input int y);
+        logic [15:0] w;
+        begin
+            w = dut.u_vga_vram.mem[y * 80 + x];
+            return w[7:0];
+        end
+    endfunction
+
+    function automatic logic [3:0] tile_color(input int x, input int y);
+        logic [15:0] w;
+        begin
+            w = dut.u_vga_vram.mem[y * 80 + x];
+            return w[11:8];
+        end
+    endfunction
+
+    // 1 if row y, with leading/trailing blanks trimmed, equals `expected`.
+    // (Compared char by char: Icarus can't build strings in functions.)
+    function automatic bit row_equals(input int y, input string expected);
+        int first, last, x;
+        byte c;
+        begin
+            first = -1; last = -1;
+            for (x = 0; x < 80; x++) begin
+                c = tile_char(x, y);
+                if (c != " " && c != 8'h00) begin
+                    if (first < 0) first = x;
+                    last = x;
+                end
+            end
+            if (first < 0) return (expected.len() == 0);
+            if (last - first + 1 != expected.len()) return 0;
+            for (x = first; x <= last; x++)
+                if (tile_char(x, y) != expected[x - first]) return 0;
+            return 1;
+        end
+    endfunction
+
+    task automatic print_row(input int y);
+        int x;
+        begin
+            $write("\"");
+            for (x = 0; x < 80; x++) $write("%c", tile_char(x, y));
+            $write("\"\n");
+        end
+    endtask
+
+    // Column where `needle` starts on row y, or -1
+    function automatic int find_on_row(input int y, input string needle);
+        int x, k, hit;
+        begin
+            for (x = 0; x + needle.len() <= 80; x++) begin
+                hit = 1;
+                for (k = 0; k < needle.len(); k++)
+                    if (tile_char(x + k, y) != needle[k]) hit = 0;
+                if (hit) return x;
+            end
+            return -1;
+        end
+    endfunction
+
+    task automatic expect_row(input int y, input string expected, input string name);
+        int t;
+        begin
+            t = 0;
+            while (!row_equals(y, expected) && t < LINE_TIMEOUT) begin
+                repeat (100) @(posedge clk_100mhz);
+                t += 100;
+            end
+            if (row_equals(y, expected)) begin
+                $display("PASS: %s -> \"%s\"", name, expected);
+            end else begin
                 error_count++;
-                $display("FAIL: %s — display_reg expected 0x%08h, got 0x%08h", name, expected, actual);
-            end else
-                $display("PASS: %s — display_reg=0x%08h", name, actual);
+                $display("FAIL: %s expected \"%s\", row %0d is:", name, expected, y);
+                print_row(y);
+            end
         end
     endtask
 
-    // --- Assert button for hold_cyc clocks then release ---
-    task automatic press_button(input logic [4:0] btn, input int hold_cyc);
+    task automatic expect_color(input int y, input string needle, input logic [3:0] color,
+                                input string name);
+        int x;
         begin
-            @(posedge clk_100mhz); #1;
-            buttons = btn;
-            repeat (hold_cyc) @(posedge clk_100mhz);
-            #1;
-            buttons = 5'b00000;
+            x = find_on_row(y, needle);
+            if (x < 0) begin
+                error_count++;
+                $display("FAIL: %s: \"%s\" not on row %0d", name, needle, y);
+            end else if (tile_color(x, y) !== color) begin
+                error_count++;
+                $display("FAIL: %s color expected 0x%01h, got 0x%01h", name, color, tile_color(x, y));
+            end else begin
+                $display("PASS: %s color = 0x%01h", name, color);
+            end
         end
     endtask
 
-    // --- Inter-test gap: hold 3500 cycles to let UART busy-wait complete (~3000 cycles
-    //     at BAUD_DIV=20) before the next button press polls the main loop again.
-    task automatic gap();
+    // Full expression: A, op, B, each confirmed with Enter twice
+    task automatic calc(input string a, input logic [7:0] op_key, input string b);
         begin
-            buttons = 5'b00000;
-            repeat (3500) @(posedge clk_100mhz);
+            type_digits(a);
+            tap(K_ENTER); tap(K_ENTER);
+            tap(op_key);
+            tap(K_ENTER); tap(K_ENTER);
+            type_digits(b);
+            tap(K_ENTER); tap(K_ENTER);
         end
     endtask
 
-    // --- Main test sequence ---
+    // ---------------- Test sequence ----------------
+
     initial begin
         $dumpfile("sim_calculator.vcd");
         $dumpvars(0, tb_calculator);
 
         error_count = 0;
-        rst_n       = 1'b0;
-        uart_rx     = 1'b1;
-        switches    = 16'h0000;
-        buttons     = 5'b00000;
-
-        @(posedge clk_100mhz); @(posedge clk_100mhz);
+        ps2_clk  = 1'b1;
+        ps2_data = 1'b1;
+        rst_n    = 1'b0;
+        repeat (10) @(posedge clk_100mhz);
         rst_n = 1'b1;
 
-        // Boot delay: let crt0 complete and main() reach the polling loop
-        repeat (600) @(posedge clk_100mhz);
+        // Boot: screen clear + controls legend on row 1 + idle status
+        expect_row(1, "0-9:digits  A:+ S:- M:* D:/  Enter:confirm(x2)  Backspace:edit/back",
+                   "legend on row 1");
 
-        // -------------------------------------------------------
-        // Test 1: ADD — A=0x0A (10), B=0x05 (5) → 15 = 0x000F
-        // -------------------------------------------------------
-        switches = 16'h050A;
-        @(posedge clk_100mhz);
-        press_button(5'b00001, 300);         // BTNU = add
-        wait_leds(16'h000F, "ADD leds",  3000);
-        repeat (200) @(posedge clk_100mhz);
-        #1; check_display(32'h0000000F,  "ADD display_reg");
-        gap();
+        // First key also draws the initial status line
+        tap(K_SPACE);
+        expect_row(STATUS_ROW,
+                   "Enter operand A (0-9) - Enter to confirm, Backspace to edit",
+                   "status: enter A");
 
-        // -------------------------------------------------------
-        // Test 2: MUL — A=0x0A (10), B=0x05 (5) → 50 = 0x0032
-        // -------------------------------------------------------
-        press_button(5'b00100, 300);         // BTNR = mul
-        wait_leds(16'h0032, "MUL leds",  3000);
-        repeat (200) @(posedge clk_100mhz);
-        #1; check_display(32'h00000032,  "MUL display_reg");
-        gap();
+        // --- ADD ---
+        calc("12", K_A, "3");
+        expect_row(RESULT_ROW, "12 + 3 = 15", "ADD");
+        expect_color(RESULT_ROW, "+", 4'hE, "ADD operator");
+        expect_color(RESULT_ROW, "15", 4'h2, "ADD result");
+        expect_row(STATUS_ROW,
+                   "Result shown below - press any key to start a new calculation",
+                   "status: result");
+        tap(K_SPACE);
 
-        // -------------------------------------------------------
-        // Test 3: SUB — A=0x0A (10), B=0x05 (5) → 5 = 0x0005
-        // -------------------------------------------------------
-        press_button(5'b00010, 300);         // BTNL = sub
-        wait_leds(16'h0005, "SUB leds",  3000);
-        repeat (200) @(posedge clk_100mhz);
-        #1; check_display(32'h00000005,  "SUB display_reg");
-        gap();
+        // --- MUL ---
+        calc("7", K_M, "6");
+        expect_row(RESULT_ROW, "7 * 6 = 42", "MUL");
+        tap(K_SPACE);
 
-        // -------------------------------------------------------
-        // Test 4: DIV by zero — A=0x07, B=0x00 → 0xFFFFFFFF
-        // -------------------------------------------------------
-        switches = 16'h0007;
-        @(posedge clk_100mhz);
-        press_button(5'b01000, 300);         // BTND = div
-        wait_leds(16'hFFFF, "DIV/0 leds", 3000);
-        repeat (200) @(posedge clk_100mhz);
-        #1; check_display(32'hFFFFFFFF,  "DIV/0 display_reg");
-        gap();
+        // --- SUB ---
+        calc("9", K_S, "4");
+        expect_row(RESULT_ROW, "9 - 4 = 5", "SUB");
+        tap(K_SPACE);
 
-        // -------------------------------------------------------
-        // Test 5: DIV normal — A=0x0A / B=0x05 → 2 = 0x0002
-        // -------------------------------------------------------
-        switches = 16'h050A;
-        @(posedge clk_100mhz);
-        press_button(5'b01000, 300);         // BTND = div
-        wait_leds(16'h0002, "DIV leds",  3000);
-        repeat (200) @(posedge clk_100mhz);
-        #1; check_display(32'h00000002,  "DIV display_reg");
-        gap();
+        // --- SUB below zero is reported as OVERFLOW (unsigned math) ---
+        calc("3", K_S, "5");
+        expect_row(RESULT_ROW, "3 - 5 = OVERFLOW", "SUB underflow");
+        expect_color(RESULT_ROW, "OVERFLOW", 4'hC, "OVERFLOW");
+        tap(K_SPACE);
 
-        // -------------------------------------------------------
-        // Test 6: UART output for ADD — press again after full gap
-        //   Expected line for 0x0A+0x05=0x0000000F:
-        //   "0A+05=0000000F\n" (14 bytes, no newline captured)
-        // -------------------------------------------------------
-        uart_capture_ok = 1'b1;
+        // --- DIV ---
+        calc("20", K_D, "3");
+        expect_row(RESULT_ROW, "20 / 3 = 6", "DIV");
+        tap(K_SPACE);
 
-        // Press button then wait for leds as sync point; UART transmission
-        // starts shortly after leds change, so recv_uart_byte will catch it.
-        press_button(5'b00001, 300);  // BTNU = add
-        wait_leds(16'h000F, "ADD UART leds", 2000);
+        // --- DIV by zero ---
+        calc("8", K_D, "0");
+        expect_row(RESULT_ROW, "8 / 0 = DIV BY ZERO", "DIV/0");
+        tap(K_SPACE);
 
-        for (uart_i = 0; uart_i < 14; uart_i = uart_i + 1) begin
-            recv_uart_byte(uart_buf[uart_i], uart_ok, 500);
-            if (!uart_ok) begin
-                uart_capture_ok = 1'b0;
-                uart_i = 14;  // break
-            end
-        end
+        // --- Backspace editing: type 19, delete the 9, type 2 -> 12 ---
+        type_digits("19");
+        tap(K_BKSP);
+        type_digits("2");
+        expect_row(RESULT_ROW, "12", "backspace edits operand A");
+        tap(K_ENTER); tap(K_ENTER);
+        tap(K_A);
+        expect_row(RESULT_ROW, "12 + 0", "operator shows B placeholder");
+        tap(K_ENTER); tap(K_ENTER);
+        type_digits("8");
+        tap(K_ENTER); tap(K_ENTER);
+        expect_row(RESULT_ROW, "12 + 8 = 20", "ADD after backspace");
 
-        if (!uart_capture_ok) begin
-            error_count++;
-            $display("FAIL: ADD UART — timed out waiting for bytes");
-        end else if (uart_buf[0] !== "0" || uart_buf[1]  !== "A" ||
-                     uart_buf[2] !== "+" ||
-                     uart_buf[3] !== "0" || uart_buf[4]  !== "5" ||
-                     uart_buf[5] !== "=" ||
-                     uart_buf[6]  !== "0" || uart_buf[7]  !== "0" ||
-                     uart_buf[8]  !== "0" || uart_buf[9]  !== "0" ||
-                     uart_buf[10] !== "0" || uart_buf[11] !== "0" ||
-                     uart_buf[12] !== "0" || uart_buf[13] !== "F") begin
-            error_count++;
-            $write("FAIL: ADD UART line = '");
-            for (uart_i = 0; uart_i < 14; uart_i = uart_i + 1) $write("%s", uart_buf[uart_i]);
-            $display("'");
-        end else
-            $display("PASS: ADD UART = 0A+05=0000000F");
-
-        // -------------------------------------------------------
-        // Summary
-        // -------------------------------------------------------
-        if (error_count == 0)
-            $display("PASS: tb_calculator — all tests passed");
-        else begin
-            $display("FAIL: tb_calculator — %0d error(s)", error_count);
+        if (error_count != 0) begin
+            $display("Calculator integration test failed with %0d error(s).", error_count);
             $fatal(1);
         end
+
+        $display("PASS: calculator integration test passed");
         $finish;
     end
 
-    // --- Global simulation timeout ---
+    // Global watchdog
     initial begin
-        repeat (SIM_TIMEOUT) @(posedge clk_100mhz);
-        $display("FAIL: tb_calculator — global timeout after %0d cycles", SIM_TIMEOUT);
-        $display("  DEBUG: leds=0x%04h pc=0x%08h buttons=0x%0h",
-            leds, dut.u_cpu.u_datapath.pc, buttons);
+        #200_000_000;
+        $display("FAIL: global timeout");
         $fatal(1);
     end
 

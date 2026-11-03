@@ -200,9 +200,10 @@ int main(void) {
         int len_a_disp = (len_a > 0) ? len_a : 1;
         int len_b_disp = (len_b > 0) ? len_b : 1;
  
+        /* B (or its "0" placeholder) is only shown once an operator exists;
+         * otherwise it would sit right after A with no gap ("12" -> "120"). */
         int n = len_a_disp;
-        if(op != 0) n += 3;
-        n += len_b_disp;
+        if(op != 0) n += 3 + len_b_disp;
  
         unsigned int a = 0;
         unsigned int b = 0;
@@ -272,10 +273,9 @@ int main(void) {
             vga_write_char(curr_x++, 28, ' ', VGA_COLOR_WHITE);
             vga_write_char(curr_x++, 28, op_symbol(op), VGA_COLOR_YELLOW);
             vga_write_char(curr_x++, 28, ' ', VGA_COLOR_WHITE);
+            vga_print_str(curr_x, 28, (len_b > 0) ? buff_b : "0", VGA_COLOR_WHITE);
+            curr_x += len_b_disp;
         }
- 
-        vga_print_str(curr_x, 28, (len_b > 0) ? buff_b : "0", VGA_COLOR_WHITE);
-        curr_x += len_b_disp;
  
         if(state == RESULT) {
             vga_write_char(curr_x++, 28, ' ', VGA_COLOR_WHITE);

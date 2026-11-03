@@ -209,6 +209,8 @@ sim_vga_sync:
 # --- VGA Tile Lookup / Pixel Generator Simulation ---
 sim_vga_core:
 	iverilog -g2012 -o sim_vga_core.vvp \
+		rtl/peripheral/vga_sync.sv \
+		rtl/memory/font_rom.sv \
 		rtl/peripheral/vga_core.sv \
 		tb/peripheral/tb_vga_core.sv
 	vvp sim_vga_core.vvp

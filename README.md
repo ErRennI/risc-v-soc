@@ -259,7 +259,7 @@ make sim_sva              # SVA structural properties over 895 cycles
 ```bash
 make sim_soc_decode       # Top-level MMIO address decode + read-data mux
 make sim_soc_diag         # Full-SoC diagnostic firmware
-make sim_calculator       # Calculator demo (ADD/MUL/SUB/DIV via switches)
+make sim_calculator       # Calculator demo (PS/2 keyboard input, VGA output)
 make sim_benchmark        # Performance benchmark (CPI measurement)
 make sim_irq_demo         # Timer ISR + UART echo + 7-seg demo
 ```
@@ -333,7 +333,7 @@ are written to `0x0000–0x77FF` via the IMEM write window at `0x50000000`.
 | Program | Build target | What it does |
 |---------|-------------|--------------|
 | `soc_diag.c` | `compile_soc_diag` | Diagnostic: tests BSS/data init, DMEM, GPIO, timer, UART. Pass = LEDs 0xA5A5 |
-| `calculator.c` | `compile_calculator` | SW[7:0]=A, SW[15:8]=B, buttons select +/−/×/÷. Result on LEDs + 7-seg + UART |
+| `calculator.c` | `compile_calculator` | PS/2 keyboard: digits for A and B, A/S/M/D for +/−/×/÷, Enter twice to confirm, Backspace to edit. Shows `A op B = R` on VGA |
 | `irq_demo.c` | `compile_irq_demo` | Timer ISR every 0.5 s: toggles LED[15], increments 7-seg counter, main loop echoes UART |
 | `benchmark.c` | `compile_benchmark` | 1000-iteration mixed workload; prints cycles, instructions, CPI, MIPS over UART |
 | `bootloader.c` | `compile_bootloader` | UART bootloader: receives `.bin` over serial, writes to IMEM, jumps to entry point |
@@ -370,7 +370,7 @@ are written to `0x0000–0x77FF` via the IMEM write window at `0x50000000`.
 | `tb_sva.sv` | 5 | SVA structural properties over full ISA diagnostic run |
 | `tb_soc_top_decode.sv` | — | MMIO address decode, DMEM/MMIO read-data mux, VGA/keyboard region boundaries |
 | `tb_soc_diag.sv` | — | Full-SoC diagnostic firmware integration |
-| `tb_calculator.sv` | 13 | Calculator: ADD, MUL, SUB, DIV/0, DIV via UART |
+| `tb_calculator.sv` | 15 | Calculator via simulated PS/2 keys: ADD, MUL, SUB, underflow, DIV, DIV/0, backspace; checks VGA VRAM |
 | `tb_irq_demo.sv` | — | Banner received, ISR fires ≥ 3×, LED[15] toggles, 7-seg non-zero |
 | `tb_benchmark.sv` | — | Benchmark completes, "Done" sentinel received |
 

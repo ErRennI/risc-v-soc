@@ -19,6 +19,12 @@ module vga_vram_ctrl (
 
     logic [15:0] mem[0:4799];
 
+    // Power-up contents = 0, same as Artix-7 BRAM after configuration.
+    // Keeps simulation from reading X for tiles that were never written.
+    initial begin
+        for (int i = 0; i < 4800; i++) mem[i] = 16'h0000;
+    end
+
     typedef enum logic {
         STATE_IDLE,
         STATE_CLEAR
@@ -29,12 +35,12 @@ module vga_vram_ctrl (
 
     logic actual_write_en;
     logic [12:0] actual_write_addr;
-    logic [11:0] actual_write_data;
+    logic [15:0] actual_write_data;  // full tile word: attrib[15:12], color[11:8], code[7:0]
 
     always_ff @(posedge clk_100mhz or negedge rst) begin
         if (!rst) begin
             current_state <= STATE_IDLE;
-            clear_cnt_reg <= 16'd0;
+            clear_cnt_reg <= 13'd0;
         end else begin
             current_state <= next_state;
             clear_cnt_reg <= clear_cnt_next;

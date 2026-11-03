@@ -98,9 +98,11 @@ Expected outcome today: this regression should pass as part of signoff.
 - Bench file: `tb/core/tb_cpu_exceptions.sv`
 - Coverage:
   - Illegal instruction (MCAUSE = 2, MTVAL = faulting instruction word)
-  - Load address misaligned (MCAUSE = 4, MTVAL = faulting address)
-  - Store address misaligned (MCAUSE = 6, MTVAL = faulting address)
-  - Each test resumes execution after MRET
+  - EBREAK (MCAUSE = 3, MTVAL = 0)
+  - Instruction-address misaligned from JALR and from a taken branch (MCAUSE = 0, MTVAL = target address)
+  - Misaligned word load and store handled in hardware (no trap; result and neighbouring bytes checked)
+  - FENCE executes as a NOP
+  - Each trapping test resumes execution after MRET
 
 ### SVA Structural Properties
 - `make sim_sva`
@@ -137,7 +139,7 @@ Expected outcome today: this regression should pass as part of signoff.
 - `make sim_soc_decode`
 - Bench file: `tb/integration/tb_soc_top_decode.sv`
 - Coverage:
-  - UART/timer/GPIO/7-seg/VGA/keyboard region select decode, including the VGA tile-VRAM window boundary (`0x40005000`-`0x40007580`)
+  - UART/timer/GPIO/7-seg/VGA/keyboard region select decode, including the VGA tile-VRAM window boundary (`0x40005000`-`0x4000757F`)
   - DMEM vs MMIO read-data routing, including the VGA `vram_ready` and keyboard `{kbd_ready, kbd_scan_code}` read-data mux
   - top-level address-map sanity for `0x2000_0000` and `0x4000_xxxx`
 
@@ -158,11 +160,13 @@ Expected outcome today: this regression should pass as part of signoff.
 - `make sim_calculator`
 - Software image: `sw/tests/calculator.c`
 - Bench file: `tb/integration/tb_calculator.sv`
+- Drives soc_top's PS/2 pins like a keyboard (make code, then F0 + break code) and reads the result line back from the VGA tile VRAM.
 - Coverage:
-  - ADD, MUL, SUB, DIV-by-zero, DIV result paths end-to-end
-  - LED output (`gpio_write`) for each operation
-  - 7-segment display register (`sevenseg_write`) for each operation
-  - UART formatted output (`uart_putc`) verified byte-by-byte for ADD
+  - Boot: controls legend on row 1 and status line on row 25
+  - ADD, MUL, SUB, DIV and DIV-by-zero end-to-end (`A op B = R` on row 28)
+  - SUB below zero shown as `OVERFLOW`
+  - Backspace editing of an operand, and the `B` placeholder appearing once an operator is chosen
+  - Operator, result and error colors in VRAM
 
 ## 4. Bare-Metal Software Tests
 

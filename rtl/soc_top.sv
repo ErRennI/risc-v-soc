@@ -169,7 +169,10 @@ module soc_top #(
     assign mmio_reg_addr = dmem_addr[3:0];
     assign mmio_write_data = dmem_write_data;
 
-    logic cpu_irq_line = timer_irq;
+    // Timer IRQ to the CPU. Must be a continuous assignment: a declaration
+    // initializer ("logic x = y;") is evaluated only once at time 0.
+    logic cpu_irq_line;
+    assign cpu_irq_line = timer_irq;
 
     cpu #(
         .PC_RESET(PC_RESET)

@@ -155,10 +155,16 @@ module tb_vga_vram_ctrl;
         cpu_addr       = 13'd100;
         cpu_write_data = 16'hFFFF;
 
-        // Wait long enough for all NUM_TILES clear cycles plus the IDLE transition.
-        repeat (NUM_TILES + 10) @(posedge clk_100mhz);
+        // Hold the write only while the clear is still running (the clear
+        // counter passes tile 100 inside this window), then release it so
+        // nothing is written after the clear ends.
+        repeat (200) @(posedge clk_100mhz);
         #1;
         vram_write_en = 1'b0;
+
+        // Wait for the rest of the clear plus the IDLE transition.
+        repeat (NUM_TILES) @(posedge clk_100mhz);
+        #1;
 
         check_bit(vram_ready, 1'b1, "vram_ready high after clear completes");
 
